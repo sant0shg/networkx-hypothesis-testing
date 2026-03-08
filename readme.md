@@ -10,14 +10,9 @@ Instead of hand-crafted examples, Hypothesis automatically generates hundreds of
 
 ## Algorithms Under Test
 
-We're targeting graph analytics algorithms from NetworkX, including areas like:
-
-- Shortest paths
-- Centrality measures
-- Spanning trees
-- Connectivity
-- Matching and flow algorithms
-- Community detection
+| Algorithm | NetworkX function | Properties tested |
+|---|---|---|
+| **Dijkstra's Shortest Path** | `single_source_dijkstra_path_length` | Self-distance is 0, all distances non-negative |
 
 ## Properties We Test
 
