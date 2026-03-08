@@ -31,32 +31,55 @@ Each test verifies a fundamental property of the algorithm:
 | **Idempotence** | Applying twice = applying once | — |
 | **Boundary conditions** | Edge cases | Empty graphs, single nodes, disconnected components |
 
-## Setup
+## Getting Started
+
+### 1. Clone and set up
 
 ```bash
 git clone <repo-url>
 cd networkx
 python -m venv .venv && source .venv/bin/activate
-pip install networkx hypothesis pytest
+pip install -r requirements.txt
 ```
 
-## Running Tests
+### 2. Run all tests
 
 ```bash
 pytest tests/ -v
 ```
 
+### 3. Run a specific test file
+
+```bash
+pytest main.py -v
+```
+
+### 4. Run a single test
+
+```bash
+pytest main.py::test_self_distance_is_zero -v
+```
+
+### 5. See Hypothesis examples as they're generated
+
+```bash
+pytest tests/ -v -s
+```
+
+The `-s` flag disables output capturing so you can see `print()` statements inside tests — useful for inspecting what graphs Hypothesis is generating.
+
 ## Structure
 
 ```
-tests/
-  test_<algorithm>.py   # property-based tests with Hypothesis
+main.py            # all property-based tests
+requirements.txt   # project dependencies
+docs/              # project brief
 ```
 
-Each test file includes:
-- Custom Hypothesis strategies for generating graphs
-- Tests decorated with `@given(...)` covering the properties above
-- Docstrings explaining the property, its mathematical basis, and what a failure means
+`main.py` contains:
+- Custom Hypothesis strategies for generating weighted graphs
+- Invariant tests for **Dijkstra's shortest path** (`single_source_dijkstra_path_length`)
+- Tests decorated with `@given(...)` with docstrings explaining each property, its mathematical basis, and what a failure means
 
 ## Resources
 
