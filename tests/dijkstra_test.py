@@ -65,3 +65,34 @@ def test_self_distance_is_zero(data):
     assert lengths[source] == 0.0, (
         f"Self-distance of node {source} is {lengths[source]}, expected 0.0"
     )
+
+
+# ---------------------------------------------------------------------------
+# Invariant — All distances are non-negative
+# ---------------------------------------------------------------------------
+
+@given(weighted_graph_and_node())
+def test_all_distances_are_non_negative(data):
+    """
+    Invariant: Every distance returned by Dijkstra is >= 0.
+
+    Mathematical basis: Each edge weight is >= 0 (enforced by the strategy),
+    so any path cost is a sum of non-negative numbers, which is itself
+    non-negative. Dijkstra cannot produce a negative distance when all weights
+    satisfy the precondition.
+
+    Graphs generated: Random weighted undirected graphs with 2-20 nodes and up
+    to 60 edges. All weights are in [0.1, 100.0], so the precondition is always
+    satisfied. Only reachable nodes appear in the result dict, so every entry
+    must have a non-negative cost.
+
+    Failure indicates: A relaxation step subtracted instead of added weight, or
+    the initialisation set a node's distance to a negative sentinel value that
+    was never overwritten.
+    """
+    G, source = data
+    lengths = nx.single_source_dijkstra_path_length(G, source, weight="weight")
+    for node, dist in lengths.items():
+        assert dist >= 0.0, (
+            f"Node {node} has negative distance {dist} from source {source}"
+        )
