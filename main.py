@@ -265,3 +265,33 @@ def test_symmetry_on_undirected_graphs(data):
             f"dist({source},{target})={lengths_from_source[target]:.6f} != "
             f"dist({target},{source})={lengths_from_target[source]:.6f}"
         )
+
+
+# ---------------------------------------------------------------------------
+# Idempotence — Running Dijkstra twice gives identical results
+# ---------------------------------------------------------------------------
+
+@given(weighted_graph_and_node())
+def test_dijkstra_is_idempotent(data):
+    """
+    Idempotence: Running Dijkstra twice on the same graph and source produces
+    identical distances both times.
+
+    Mathematical basis: Dijkstra is a deterministic algorithm. Given the same
+    graph and source it must always return the same output. A second run must
+    not observe any mutation from the first.
+
+    Graphs generated: Random weighted undirected graphs with 2-20 nodes, up to
+    60 edges, weights in [0.1, 100.0].
+
+    Failure indicates: The algorithm has side effects that mutate the graph or
+    internal state between runs, breaking determinism.
+    """
+    G, source = data
+    lengths1 = dict(nx.single_source_dijkstra_path_length(G, source, weight="weight"))
+    lengths2 = dict(nx.single_source_dijkstra_path_length(G, source, weight="weight"))
+    assert lengths1 == lengths2, (
+        f"Dijkstra returned different results on two runs from source {source}"
+    )
+
+
