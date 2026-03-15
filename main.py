@@ -189,3 +189,79 @@ def test_returned_paths_are_valid(data):
                 f"Path uses non-existent edge ({path[i]}, {path[i + 1]})"
             )
 
+
+# ---------------------------------------------------------------------------
+# Metamorphic 1 — Weight scaling scales distances, preserves paths
+# ---------------------------------------------------------------------------
+
+@given(
+    weighted_graph_and_node(),
+    st.floats(min_value=0.5, max_value=10.0, allow_nan=False, allow_infinity=False),
+)
+def test_weight_scaling_scales_distances(data, k):
+    """
+    Metamorphic property: Multiplying all edge weights by a constant k > 0
+    multiplies every shortest-path distance by k and leaves the path node
+    sequences unchanged.
+
+    Mathematical basis: If path P is optimal for weights w, it is also optimal
+    for weights k*w (positive scaling preserves the ordering of path costs).
+    The cost of P simply scales by k.
+
+    Graphs generated: Random weighted undirected graphs with 2-20 nodes. The
+    scaling factor k is drawn from [0.5, 10.0].
+
+    Failure indicates: Dijkstra's cost accumulation is not linear in edge
+    weights, or path selection changes under uniform scaling — neither should
+    happen.
+    """
+    G, source = data
+    lengths_orig, paths_orig = nx.single_source_dijkstra(G, source, weight="weight")
+
+    G_scaled = G.copy()
+    for u, v in G_scaled.edges():
+        G_scaled[u][v]["weight"] = G_scaled[u][v]["weight"] * k
+
+    lengths_scaled, paths_scaled = nx.single_source_dijkstra(G_scaled, source, weight="weight")
+
+    for target in lengths_orig:
+        assert abs(lengths_scaled[target] - lengths_orig[target] * k) < 1e-6, (
+            f"Scaled distance {lengths_scaled[target]:.6f} != "
+            f"{lengths_orig[target]:.6f} * {k:.4f} for {source} -> {target}"
+        )
+        assert paths_scaled[target] == paths_orig[target], (
+            f"Path changed after scaling for {source} -> {target}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Metamorphic 2 — Symmetry on undirected graphs
+# ---------------------------------------------------------------------------
+
+@given(weighted_graph_and_two_nodes())
+def test_symmetry_on_undirected_graphs(data):
+    """
+    Metamorphic property: On undirected graphs, dist(u, v) == dist(v, u).
+
+    Mathematical basis: An undirected edge (u, v) can be traversed in either
+    direction with the same weight. Any path from u to v can be reversed to
+    give a path from v to u with identical total cost.
+
+    Graphs generated: Random weighted undirected graphs with 2-20 nodes. Two
+    nodes are drawn independently and may be the same node.
+
+    Failure indicates: The algorithm is treating the undirected graph as
+    directed, or the path cost computation is direction-sensitive.
+    """
+    G, source, target = data
+    lengths_from_source = nx.single_source_dijkstra_path_length(G, source, weight="weight")
+    lengths_from_target = nx.single_source_dijkstra_path_length(G, target, weight="weight")
+
+    if target in lengths_from_source:
+        assert source in lengths_from_target, (
+            f"Asymmetric reachability: {source}->{target} reachable but not reverse"
+        )
+        assert abs(lengths_from_source[target] - lengths_from_target[source]) < 1e-9, (
+            f"dist({source},{target})={lengths_from_source[target]:.6f} != "
+            f"dist({target},{source})={lengths_from_target[source]:.6f}"
+        )
