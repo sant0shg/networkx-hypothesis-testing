@@ -1,41 +1,45 @@
 """
-Property-Based Tests: Dijkstra's Shortest Path — Invariants
+Property-Based Tests: Dijkstra's Shortest Path
 Algorithm: networkx.algorithms.shortest_paths.weighted.single_source_dijkstra
 Reference: https://networkx.org/documentation/stable/reference/algorithms/shortest_paths/dijkstra.html
 
-Precondition enforced by the graph strategy: all edge weights >= 0.
+Properties covered:
+  - Invariants
+  - Postconditions
+  - Metamorphic properties
+  - Idempotence
+  - Boundary conditions
+
+Precondition enforced by all graph strategies: all edge weights >= 0.
 """
 
 import networkx as nx
-from hypothesis import given, strategies as st
+from hypothesis import given
+from hypothesis import strategies as st
 
 
 # ---------------------------------------------------------------------------
-# Graph generation strategy — weighted, non-negative edges
+# Graph generation strategies
 # ---------------------------------------------------------------------------
 
 @st.composite
-def weighted_graph_and_node(draw):
-    """Generate a random weighted undirected graph and one of its nodes."""
-    n = draw(st.integers(min_value=2, max_value=20))
-
+def weighted_graph_and_node(draw, min_nodes=2, max_nodes=20):
+    """Random weighted undirected graph + one of its nodes as source."""
+    n = draw(st.integers(min_value=min_nodes, max_value=max_nodes))
     edges = draw(st.lists(
         st.tuples(
-            st.integers(min_value=0, max_value=n - 1),   # u
-            st.integers(min_value=0, max_value=n - 1),   # v
-            st.floats(min_value=0.1, max_value=100.0,    # weight (non-negative)
+            st.integers(min_value=0, max_value=n - 1),
+            st.integers(min_value=0, max_value=n - 1),
+            st.floats(min_value=0.1, max_value=100.0,
                       allow_nan=False, allow_infinity=False),
         ),
         max_size=60,
     ))
-
     G = nx.Graph()
     G.add_nodes_from(range(n))
     for u, v, w in edges:
         if u != v:
             G.add_edge(u, v, weight=w)
-
-    # Pick any node from the graph to use as the source
     source = draw(st.sampled_from(list(G.nodes())))
     return G, source
 
@@ -65,7 +69,7 @@ def weighted_graph_and_two_nodes(draw):
 
 
 # ---------------------------------------------------------------------------
-# Invariant — Self-distance is always 0
+# Invariant 1 — Self-distance is always 0
 # ---------------------------------------------------------------------------
 
 @given(weighted_graph_and_node())
@@ -92,7 +96,7 @@ def test_self_distance_is_zero(data):
 
 
 # ---------------------------------------------------------------------------
-# Invariant — All distances are non-negative
+# Invariant 2 — All distances are non-negative
 # ---------------------------------------------------------------------------
 
 @given(weighted_graph_and_node())
@@ -107,12 +111,11 @@ def test_all_distances_are_non_negative(data):
 
     Graphs generated: Random weighted undirected graphs with 2-20 nodes and up
     to 60 edges. All weights are in [0.1, 100.0], so the precondition is always
-    satisfied. Only reachable nodes appear in the result dict, so every entry
-    must have a non-negative cost.
+    satisfied.
 
     Failure indicates: A relaxation step subtracted instead of added weight, or
-    the initialisation set a node's distance to a negative sentinel value that
-    was never overwritten.
+    the initialisation set a node's distance to a negative sentinel that was
+    never overwritten.
     """
     G, source = data
     lengths = nx.single_source_dijkstra_path_length(G, source, weight="weight")
@@ -295,3 +298,89 @@ def test_dijkstra_is_idempotent(data):
     )
 
 
+# ---------------------------------------------------------------------------
+# Boundary 1 — Single-node graph: only self is reachable
+# ---------------------------------------------------------------------------
+
+@given(st.integers(min_value=0, max_value=100))
+def test_single_node_graph(node_id):
+    """
+    Boundary condition: A graph with exactly one node and no edges has only
+    the node itself reachable, with distance 0.
+
+    Mathematical basis: The trivial path from a node to itself has zero cost.
+    No other nodes exist, so the result dict has exactly one entry.
+
+    Graphs generated: Single-node graphs where the node id is drawn from
+    [0, 100] to ensure node identity does not affect the result.
+
+    Failure indicates: The algorithm fails on the minimal possible graph, or
+    introduces phantom distances for nodes that do not exist.
+    """
+    G = nx.Graph()
+    G.add_node(node_id)
+    lengths = dict(nx.single_source_dijkstra_path_length(G, node_id, weight="weight"))
+    assert lengths == {node_id: 0.0}, (
+        f"Single-node graph: expected {{{node_id}: 0.0}}, got {lengths}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Boundary 2 — Edgeless graph: only source is reachable
+# ---------------------------------------------------------------------------
+
+@given(weighted_graph_and_node())
+def test_edgeless_graph_only_source_reachable(data):
+    """
+    Boundary condition: In a graph with no edges, only the source node is
+    reachable from the source (with distance 0).
+
+    Mathematical basis: Without edges there are no paths between distinct
+    nodes. Dijkstra must return only the source with distance 0 and must not
+    report any other node.
+
+    Graphs generated: Nodes from a random weighted graph are reused but all
+    edges are stripped, producing an edgeless graph of the same size (2-20
+    nodes). The source is carried over from the original strategy.
+
+    Failure indicates: The algorithm reports distances to unreachable nodes, or
+    mishandles graphs where no relaxation steps are possible.
+    """
+    G, source = data
+    G_empty = nx.Graph()
+    G_empty.add_nodes_from(G.nodes())  # same nodes, zero edges
+    lengths = dict(nx.single_source_dijkstra_path_length(G_empty, source, weight="weight"))
+    assert set(lengths.keys()) == {source}, (
+        f"Edgeless graph: expected only source {source}, got {set(lengths.keys())}"
+    )
+    assert lengths[source] == 0.0
+
+
+# ---------------------------------------------------------------------------
+# Boundary 3 — Disconnected graph: unreachable nodes absent from result
+# ---------------------------------------------------------------------------
+
+@given(weighted_graph_and_node())
+def test_disconnected_nodes_absent_from_result(data):
+    """
+    Boundary condition: Nodes not reachable from the source do not appear in
+    the result of single_source_dijkstra_path_length.
+
+    Mathematical basis: Dijkstra only visits nodes it can reach via existing
+    edges. Unreachable nodes have no finite shortest path and must not appear
+    in the output dict.
+
+    Graphs generated: Random undirected graphs with 2-20 nodes, which
+    frequently contain multiple disconnected components due to random edge
+    sampling — giving good natural coverage of this case.
+
+    Failure indicates: The algorithm assigns a distance to nodes it never
+    visited, corrupting the result dict with phantom entries.
+    """
+    G, source = data
+    lengths = dict(nx.single_source_dijkstra_path_length(G, source, weight="weight"))
+    for node in G.nodes():
+        if node not in lengths:
+            assert not nx.has_path(G, source, node), (
+                f"Node {node} is reachable from {source} but missing from result"
+            )
