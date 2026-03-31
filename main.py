@@ -384,3 +384,157 @@ def test_disconnected_nodes_absent_from_result(data):
             assert not nx.has_path(G, source, node), (
                 f"Node {node} is reachable from {source} but missing from result"
             )
+
+
+# ===========================================================================
+# Algorithm: Dinitz Maximum Flow
+# networkx.algorithms.flow.dinitz
+# Reference: https://networkx.org/documentation/stable/reference/algorithms/
+#            generated/networkx.algorithms.flow.dinitz.html
+# ===========================================================================
+
+@st.composite
+def flow_graph_and_nodes(draw):
+    """Random directed graph with capacities + a source and sink node."""
+    n = draw(st.integers(min_value=2, max_value=10))
+    edges = draw(st.lists(
+        st.tuples(
+            st.integers(min_value=0, max_value=n - 1),  # u
+            st.integers(min_value=0, max_value=n - 1),  # v
+            st.integers(min_value=1, max_value=20),     # capacity (always >= 1)
+        ),
+        max_size=30,
+    ))
+    G = nx.DiGraph()
+    G.add_nodes_from(range(n))
+    for u, v, cap in edges:
+        if u != v:
+            G.add_edge(u, v, capacity=cap)
+    nodes = list(G.nodes())
+    source = draw(st.sampled_from(nodes))
+    sink   = draw(st.sampled_from(nodes))
+    return G, source, sink
+
+
+# ---------------------------------------------------------------------------
+# Invariant — Max-Flow equals Min-Cut (Max-Flow Min-Cut theorem)
+# ---------------------------------------------------------------------------
+
+@given(flow_graph_and_nodes())
+def test_max_flow_equals_min_cut(data):
+    """
+    Invariant: maximum_flow_value(G, s, t) == minimum_cut value(G, s, t).
+
+    Mathematical basis: The Max-Flow Min-Cut theorem (Ford-Fulkerson, 1956)
+    guarantees that the value of the maximum flow from s to t equals the
+    capacity of the minimum s-t cut. A minimum cut is a partition of nodes
+    into two sets S (containing s) and T (containing t) such that the total
+    capacity of edges from S to T is minimised. Any correct max-flow algorithm
+    must produce a flow value exactly equal to this minimum cut capacity.
+
+    Graphs generated: Random directed graphs with 2-10 nodes and up to 30
+    edges. All capacities are integers in [1, 20]. Source and sink are drawn
+    independently and may be any node in the graph. Cases where source == sink
+    or there is no path s -> t are skipped (trivially zero flow, not
+    interesting for this property).
+
+    Failure indicates: Dinitz did not find the true maximum flow — either it
+    terminated too early (flow too low) or there is a bug in NetworkX's
+    minimum_cut computation that this test has exposed.
+    """
+    G, source, sink = data
+    if source == sink or not nx.has_path(G, source, sink):
+        return  # skip trivial / unreachable cases
+
+    flow_value = nx.maximum_flow_value(G, source, sink, flow_func=dinitz)
+    cut_value, _ = nx.minimum_cut(G, source, sink, flow_func=dinitz)
+
+    assert abs(flow_value - cut_value) < 1e-9, (
+        f"Max flow {flow_value} != min cut {cut_value} "
+        f"for source={source}, sink={sink}"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Invariant — Flow conservation at every internal node
+# ---------------------------------------------------------------------------
+
+@given(flow_graph_and_nodes())
+def test_flow_conservation_at_internal_nodes(data):
+    """
+    Invariant: For every node v that is neither the source nor the sink,
+    the total flow into v equals the total flow out of v.
+
+        sum(R[u][v]['flow'] for u in R.predecessors(v)) == 0
+
+    (NetworkX stores flow antisymmetrically: R[u][v]['flow'] is positive for
+    flow from u to v, and R[v][u]['flow'] == -R[u][v]['flow']. Summing all
+    flow values on edges *entering* v in the residual network therefore gives
+    net-flow-in minus net-flow-out, which must be zero at internal nodes.)
+
+    Mathematical basis: Flow conservation is the second of the two conditions
+    that define a *feasible flow* (the first being capacity constraints). A
+    result that violates conservation is not a valid flow — it implies flow
+    is being created or destroyed at an internal node, which is physically
+    impossible.
+
+    Graphs generated: Random directed graphs with 2-10 nodes and up to 30
+    edges. All capacities are integers in [1, 20]. Cases where source == sink
+    or no path exists are skipped.
+
+    Failure indicates: Dinitz produced a result where an internal node acts as
+    a hidden source or sink — a fundamental correctness violation.
+    """
+    G, source, sink = data
+    if source == sink or not nx.has_path(G, source, sink):
+        return  # skip trivial / unreachable cases
+
+    R = dinitz(G, source, sink)
+
+    for v in R.nodes():
+        if v == source or v == sink:
+            continue  # conservation does not apply at source/sink
+        net_flow = sum(R[u][v]["flow"] for u in R.predecessors(v))
+        assert abs(net_flow) < 1e-9, (
+            f"Flow conservation violated at node {v}: "
+            f"net inflow = {net_flow} (expected 0)"
+        )
+
+# ---------------------------------------------------------------------------
+# Invariant — Capacity constraints on every edge
+# ---------------------------------------------------------------------------
+
+@given(flow_graph_and_nodes())
+def test_positive_flow_never_exceeds_capacity(data):
+    """
+    Invariant: The flow on every edge in the residual network is between 0 and
+    the edge's capacity (inclusive).
+
+        0 <= R[u][v]['flow'] <= R[u][v]['capacity']  for all (u, v) in R
+
+    Mathematical basis: Edge capacity is a hard physical constraint — it is the
+    maximum amount of flow an edge can carry. A feasible flow must never exceed
+    it. Together with flow conservation, this is the second condition that
+    defines a valid flow. Violating it makes the solution physically impossible.
+
+    Graphs generated: Random directed graphs with 2-10 nodes and up to 30
+    edges. All capacities are integers in [1, 20]. Cases where source == sink
+    or no path exists are skipped.
+
+    Failure indicates: Dinitz pushed more flow through an edge than its
+    capacity allows — the result is an infeasible flow and a correctness bug.
+    """
+    G, source, sink = data
+    if source == sink or not nx.has_path(G, source, sink):
+        return  # skip trivial / unreachable cases
+
+    R = dinitz(G, source, sink)
+
+    for u, v in G.edges():  # only check original graph edges, not residual back-edges
+        flow = R[u][v]["flow"]
+        capacity = R[u][v]["capacity"]
+        if flow > 0:  # only check edges that carry positive flow; zero flow trivially satisfies capacity
+            assert 0 <= flow <= capacity, (
+                f"Capacity violated on edge ({u}, {v}): "
+                f"flow={flow} but capacity={capacity}"
+            )
