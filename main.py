@@ -538,3 +538,52 @@ def test_positive_flow_never_exceeds_capacity(data):
                 f"Capacity violated on edge ({u}, {v}): "
                 f"flow={flow} but capacity={capacity}"
             )
+
+# ---------------------------------------------------------------------------
+# Postcondition 1 — Flow out of source == flow into sink == flow value
+# ---------------------------------------------------------------------------
+
+@given(flow_graph_and_nodes())
+def test_flow_out_of_source_equals_flow_into_sink(data):
+    """
+    Postcondition: The total flow leaving the source equals the total flow
+    entering the sink, and both equal the reported max flow value.
+
+        sum(R[source][v]['flow'] for v in R.successors(source)) == flow_value
+        sum(R[u][sink]['flow']   for u in R.predecessors(sink)) == flow_value
+
+    Mathematical basis: By definition, the value of a flow is the net flow
+    out of the source (= net flow into the sink). If these three quantities
+    disagree, the residual network is internally inconsistent.
+
+    Graphs generated: Random directed graphs with 2-10 nodes, up to 30 edges,
+    capacities in [1, 20]. Cases where source == sink or no path exists are
+    skipped.
+
+    Failure indicates: The reported flow value does not match what the residual
+    network actually contains — a bookkeeping bug in the algorithm.
+    """
+    G, source, sink = data
+    if source == sink or not nx.has_path(G, source, sink):
+        return
+
+    R = dinitz(G, source, sink)
+    flow_value = R.graph["flow_value"]
+
+    flow_out_of_source = sum(
+        R[source][v]["flow"] for v in R.successors(source)
+    )
+    flow_into_sink = sum(
+        R[u][sink]["flow"] for u in R.predecessors(sink)
+    )
+
+    assert abs(flow_out_of_source - flow_value) < 1e-9, (
+        f"Flow out of source {source} = {flow_out_of_source} "
+        f"!= flow value {flow_value}"
+    )
+    assert abs(flow_into_sink - flow_value) < 1e-9, (
+        f"Flow into sink {sink} = {flow_into_sink} "
+        f"!= flow value {flow_value}"
+    )
+
+
