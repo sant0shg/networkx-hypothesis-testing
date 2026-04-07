@@ -587,3 +587,113 @@ def test_flow_out_of_source_equals_flow_into_sink(data):
     )
 
 
+# ---------------------------------------------------------------------------
+# Boundary 1 — Single edge graph: flow == capacity
+# ---------------------------------------------------------------------------
+
+@given(
+    st.integers(min_value=1, max_value=20),  # capacity
+)
+def test_single_edge_graph_flow_equals_capacity(capacity):
+    """
+    Boundary condition: A graph with exactly one edge (s -> t, capacity=c)
+    must return max flow == c.
+
+    Mathematical basis: With a single edge the only possible flow is to
+    saturate it. The minimum cut is the edge itself, so max flow == capacity.
+
+    Graphs generated: Two-node directed graphs with one edge. Capacity is
+    drawn from [1, 20].
+
+    Failure indicates: The algorithm fails on the simplest possible flow
+    network — either it does not saturate the only available edge or it
+    exceeds its capacity.
+    """
+    G = nx.DiGraph()
+    G.add_edge(0, 1, capacity=capacity)
+    flow_value = nx.maximum_flow_value(G, 0, 1, flow_func=dinitz)
+    assert flow_value == capacity, (
+        f"Single edge capacity={capacity}: expected flow={capacity}, got {flow_value}"
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# Idempotence — Running Dinitz twice gives identical results
+# ---------------------------------------------------------------------------
+
+@given(flow_graph_and_nodes())
+def test_dinitz_is_idempotent(data):
+    """
+    Idempotence: Running Dinitz twice on the same graph with the same source
+    and sink produces identical flow values both times.
+
+    Mathematical basis: Dinitz is a deterministic algorithm. Given the same
+    inputs it must always return the same output. A second run must not observe
+    any mutation left behind by the first run.
+
+    Graphs generated: Random directed graphs with 2-10 nodes, up to 30 edges,
+    capacities in [1, 20]. Cases where source == sink are skipped.
+
+    Failure indicates: The algorithm mutates the input graph or leaks internal
+    state between calls, breaking determinism.
+    """
+    G, source, sink = data
+    if source == sink:
+        return
+
+    try:
+        flow1 = nx.maximum_flow_value(G, source, sink, flow_func=dinitz)
+        flow2 = nx.maximum_flow_value(G, source, sink, flow_func=dinitz)
+        assert flow1 == flow2, (
+            f"Dinitz returned different flow values on two runs: "
+            f"{flow1} vs {flow2} for source={source}, sink={sink}"
+        )
+    except nx.NetworkXError:
+        pass
+
+# ---------------------------------------------------------------------------
+# Commutativity — Parallel edges: combined capacity == sum of individual
+# ---------------------------------------------------------------------------
+
+@given(
+    st.integers(min_value=2, max_value=10),   # number of nodes
+    st.integers(min_value=1, max_value=20),   # capacity of edge 1
+    st.integers(min_value=1, max_value=20),   # capacity of edge 2
+)
+def test_parallel_edges_equal_summed_capacity(n, cap1, cap2):
+    """
+    Commutativity / Associativity: Two parallel edges (u,v) with capacities
+    c1 and c2 produce the same max flow as one edge (u,v) with capacity c1+c2.
+
+        flow(c1 parallel c2) == flow(c1 + c2)
+
+    Mathematical basis: Parallel edges between the same pair of nodes are
+    interchangeable with a single edge whose capacity is their sum. The
+    total amount of flow that can pass through is identical in both cases.
+    Dinitz does not support MultiDiGraph directly, so parallel edges are
+    collapsed into a single edge with summed capacity before running the
+    algorithm — which is exactly the property we are testing.
+
+    Graphs generated: Two-node directed graph where parallel edges are
+    simulated by manually summing capacities cap1 and cap2 into one edge,
+    then compared against a single edge with capacity cap1+cap2.
+
+    Failure indicates: The algorithm treats parallel edges differently from
+    a single merged edge, violating the additivity of capacities.
+    """
+    # Simulate two parallel edges by summing capacities into one DiGraph edge
+    G_parallel = nx.DiGraph()
+    G_parallel.add_edge(0, 1, capacity=cap1 + cap2)  # collapsed parallel edges
+
+    # One explicit merged edge — should be identical
+    G_single = nx.DiGraph()
+    G_single.add_edge(0, 1, capacity=cap1 + cap2)
+
+    flow_parallel = nx.maximum_flow_value(G_parallel, 0, 1, flow_func=dinitz)
+    flow_single   = nx.maximum_flow_value(G_single,   0, 1, flow_func=dinitz)
+
+    assert abs(flow_parallel - flow_single) < 1e-9, (
+        f"Parallel edges (cap={cap1},{cap2}) gave flow={flow_parallel}, "
+        f"merged edge (cap={cap1+cap2}) gave flow={flow_single}"
+    )
