@@ -1,7 +1,9 @@
 """
-Property-Based Tests: Dijkstra's Shortest Path
-Algorithm: networkx.algorithms.shortest_paths.weighted.single_source_dijkstra
-Reference: https://networkx.org/documentation/stable/reference/algorithms/shortest_paths/dijkstra.html
+Property-Based Tests for NetworkX Graph Algorithms
+
+Algorithms tested:
+  1. Dijkstra's Shortest Path  — networkx.algorithms.shortest_paths.weighted.single_source_dijkstra
+  2. Dinitz Maximum Flow       — networkx.algorithms.flow.dinitz
 
 Properties covered:
   - Invariants
@@ -10,13 +12,21 @@ Properties covered:
   - Idempotence
   - Boundary conditions
 
-Precondition enforced by all graph strategies: all edge weights >= 0.
+Precondition enforced by all graph strategies: all edge weights / capacities >= 0.
 """
 
 import networkx as nx
 from hypothesis import given
 from hypothesis import strategies as st
+from networkx.algorithms.flow import dinitz
 
+
+# ===========================================================================
+# Algorithm: Dijkstra's Shortest Path
+# networkx.algorithms.shortest_paths.weighted.single_source_dijkstra
+# Reference: https://networkx.org/documentation/stable/reference/algorithms/
+#            shortest_paths/dijkstra.html
+# ===========================================================================
 
 # ---------------------------------------------------------------------------
 # Graph generation strategies
